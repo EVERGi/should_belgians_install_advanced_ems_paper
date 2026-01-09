@@ -1,0 +1,3 @@
+[submodule "submodules/OpenStudio-HPXML"]
+	path = submodules/OpenStudio-HPXML
+	url = git@github.com:NREL/OpenStudio-HPXML.git
