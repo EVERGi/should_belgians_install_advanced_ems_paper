@@ -1,0 +1,10 @@
+[project]
+name = "simugrid"
+version = "1.5.0"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages]
+find = {}

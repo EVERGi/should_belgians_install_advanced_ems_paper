@@ -1,0 +1,7 @@
+[project]
+name = "treec"
+version = "0.2.0"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
