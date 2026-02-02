@@ -1,6 +1,13 @@
 
+# Should Belgians Install Advanced EMS in Their Dwellings?
 
-# Installation Instructions
+This repository contains the code, data and results to reproduce the results and plots of the paper.
+
+It it is currently not fully working but will be updated in the coming weeks.
+
+Don't hesitate to open an issue if you encounter any problems.
+
+## Installation Instructions
 
 > **Note:** Installation is supported only via **conda** because the `treec` submodule requires the `pygmo` package, which is unavailable through `pip`.
 
@@ -32,7 +39,8 @@ Once extracted, rename the folder to `EnergyPlus-24.1.0`.
 Then download the results, data and trained decision trees from the following Zenod record:
 https://zenodo.org/records/18417982
 
-!! When extracted, the total size of the three folders is approximately 70 GB !!
+> ⚠️ **Warning:** When extracted, the total size of the three folders is approximately 70 GB.
+
 
 On Windows, use 7-zip or a similar tool to extract the downloaded .tar.gz files.
 
