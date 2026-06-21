@@ -2,13 +2,10 @@ from simugrid.simulation.action import Action
 from simugrid.simulation.power import Power
 
 from simugrid.assets.asset import Asset
-from simugrid.assets.wind_turbine import WindTurbine
 from simugrid.assets.solar_pv import SolarPv
 from simugrid.assets.battery import Battery
-from simugrid.assets.battery_model import BatteryModel
 from simugrid.assets.consumer import Consumer
 from simugrid.assets.public_grid import PublicGrid
-from simugrid.assets.gas_turbine import GasTurbine
 from simugrid.assets.charger import Charger
 from simugrid.assets.energyplus import EnergyPlus
 from simugrid.assets.water_heater import WaterHeater
@@ -22,14 +19,12 @@ class Manager:
         self.microgrid.management_system = self
 
         self.renewable_classes: list[Type[Asset]] = [
-            WindTurbine,
             SolarPv,
         ]
 
-        self.battery_classes: list[Type[Asset]] = [Battery, BatteryModel]
+        self.battery_classes: list[Type[Asset]] = [Battery]
         self.renewable_assets: list[Asset] = list()
         self.batteries: list[Asset] = list()
-        self.gas_turbines: list[Asset] = list()
         self.public_grid: list[Asset] = list()
         self.consumers: list[Asset] = list()
         self.chargers: list[Asset] = list()
@@ -43,9 +38,7 @@ class Manager:
                 isrenewable = any(
                     [issubclass(asset_class, i) for i in self.renewable_classes]
                 )
-                if asset.name.startswith("WindTurbineGruber_"):
-                    isrenewable = True
-                elif asset.name.startswith("SolarPvLib_"):
+                if asset.name.startswith("SolarPvLib_"):
                     isrenewable = True
                 isbattery = any(
                     [issubclass(asset_class, i) for i in self.battery_classes]
@@ -59,8 +52,6 @@ class Manager:
                     self.consumers += [asset]
                 elif issubclass(asset_class, PublicGrid):
                     self.public_grid += [asset]
-                elif issubclass(asset_class, GasTurbine):
-                    self.gas_turbines += [asset]
                 elif issubclass(asset_class, Charger):
                     self.chargers += [asset]
                 elif issubclass(asset_class, EnergyPlus):
