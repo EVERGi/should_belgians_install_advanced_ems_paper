@@ -4,6 +4,7 @@ import os
 
 
 from belgian_dwellings.simulation.get_results import extract_info_from_config
+from belgian_dwellings.utils.progress import log, progress_bar
 import csv
 
 import datetime
@@ -226,7 +227,6 @@ def total_plot(result_file, config_dir, ems_names=None):
             boxplot_data = filter_discomfort(data, ems_names, dwelling_info_data)
         else:
             boxplot_data = [data[ems_name][y_axis] for ems_name in ems_names]
-        print(f"Plotting {y_axis} with {len(boxplot_data[1])} points")
 
         if VIOLIN_PLOT:
             violin_parts = plt.violinplot(
@@ -246,17 +246,18 @@ def total_plot(result_file, config_dir, ems_names=None):
                 patch_artist=True,
                 boxprops=dict(facecolor="white", alpha=ALPHA),
             )
-            print(f"Boxplot data for {y_axis}:")
             for i, patch in enumerate(bp["boxes"]):
                 color = colors[i]
                 patch.set_facecolor(color)
                 if color == "#ff7f0e":
                     bp["medians"][i].set_color("white")
 
-        print(f"Boxplot data for {y_axis}:")
-        for i, name in enumerate(ems_names):
-            mean_box = np.mean(boxplot_data[i])
-            print(f"Mean for {name}: {mean_box:.4f}")
+        # One compact line per metric: the mean of each EMS, as quoted in the paper.
+        means = "  ".join(
+            f"{ems_ticks_label_dict.get(name, name)} {np.mean(boxplot_data[i]):.6g}"
+            for i, name in enumerate(ems_names)
+        )
+        log(f"  {y_axis:<26} n={len(boxplot_data[1]):<4} {means}")
 
         if y_axis.startswith("base_price"):
             plt.ylim(0.075, 0.35)
@@ -1740,22 +1741,44 @@ def plot_all_paper_plots():
     result_file = f"results/belgium_usefull_{tot_houses}.csv"
     config_dir = f"data/houses_belgium_{tot_houses}/"
 
-    ems_names = ["RBC_1.5h", "TreeC", "MPC_realistic_forecast", "MPC_perfect"]
-    total_plot(result_file, config_dir, ems_names)
+    all_ems = ["RBC_1.5h", "TreeC", "MPC_realistic_forecast", "MPC_perfect"]
+    without_rbc = ["TreeC", "MPC_realistic_forecast", "MPC_perfect"]
 
-    plot_average_daily_offtake(result_file, ems_names=ems_names)
-    ems_names = ["TreeC", "MPC_realistic_forecast", "MPC_perfect"]
-    plot_opex_diff_separate(result_file, ems_names=ems_names)
+    # Each stage reads the per-house profile CSVs it needs, so the slow ones are the
+    # ones touching all 500 houses; a stage-level bar is enough to follow along.
+    stages = [
+        ("KPI distributions", lambda: total_plot(result_file, config_dir, all_ems)),
+        (
+            "average daily offtake",
+            lambda: plot_average_daily_offtake(result_file, ems_names=all_ems),
+        ),
+        (
+            "opex composition",
+            lambda: plot_opex_diff_separate(result_file, ems_names=without_rbc),
+        ),
+        (
+            "results per dwelling feature",
+            lambda: all_ems_plot(
+                result_file,
+                config_dir,
+                ems_names=without_rbc,
+                y_axis="simple_opex_diff (€)",
+                show_num_points=False,
+            ),
+        ),
+        (
+            "EV departure SOC",
+            lambda: cummul_freq_soc(result_file, ["TreeC", "MPC_realistic_forecast"]),
+        ),
+    ]
 
-    all_ems_plot(
-        result_file,
-        config_dir,
-        ems_names=ems_names,
-        y_axis="simple_opex_diff (€)",
-        show_num_points=False,
-    )
-
-    cummul_freq_soc(result_file, ["TreeC", "MPC_realistic_forecast"])
+    bar = progress_bar(len(stages), "Figures", leave=True)
+    for name, stage in stages:
+        bar.set_description_str(f"Figures: {name}")
+        stage()
+        bar.update(1)
+    bar.set_description_str("Figures")
+    bar.close()
 
 
 def get_proportions_power_asset(ems_name, profile_dir):

@@ -313,8 +313,8 @@ class EasyForcaster(PerfectForecaster):
             )
             feasible_det = int(feasible_time / dt_h)
             if pred_det <= feasible_det:
-                print(f"Adjusted pred_det from {pred_det} to {int(feasible_det)+1}")
-
+                # Predicted stay is too short to reach the target SOC: stretch it to
+                # the shortest feasible duration. Routine, so nothing is logged.
                 pred_det = feasible_det + 1
 
             self.predicted_values[f"det_{charger_id}"] = pred_det

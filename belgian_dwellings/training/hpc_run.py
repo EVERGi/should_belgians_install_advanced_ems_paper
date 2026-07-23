@@ -1,5 +1,6 @@
 import os, sys
 from belgian_dwellings.training.train_treec import train_house, valid_house
+from belgian_dwellings.utils.progress import log
 import random
 import time
 from treec.logger import TreeLogger
@@ -22,14 +23,12 @@ def hpc_run(
     pop_size=200,
     max_train=5,
 ):
-    print(f"Training house {house_num} out of {tot_houses}")
-
     # Check if the house is already trained
     house_folder = f"treec_train_{tot_houses}/house_{house_num}/"
     if os.path.exists(house_folder):
         all_tree_train = [f for f in os.listdir(house_folder)]
         if len(all_tree_train) >= max_train:
-            print(f"House {house_num} already trained with {len(all_tree_train)} trees. Skipping.")
+            log(f"house_{house_num}: already has {len(all_tree_train)} trees, skipped")
             return
 
     params_change = {
@@ -39,8 +38,7 @@ def hpc_run(
     }
 
     log_folder = train_house(house_num, tot_houses, params_change)
-    print("Training completed successfully")
-    print(f"Log folder: {log_folder}")
+    log(f"house_{house_num}: trained -> {log_folder}")
 
     valid_house(log_folder, house_num, tot_houses)
     

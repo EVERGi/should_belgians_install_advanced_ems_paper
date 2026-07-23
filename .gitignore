@@ -226,5 +226,6 @@ out/
 treec_train_500/
 
 # Data or external files
-EnergyPlus-24.1.0
+# Covers both the extracted folder and the downloaded archive
+EnergyPlus-24.1.0*
 

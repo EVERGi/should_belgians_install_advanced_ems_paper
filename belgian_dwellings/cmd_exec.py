@@ -47,6 +47,12 @@ import functools
 import multiprocessing
 import os
 
+from belgian_dwellings.utils.progress import (
+    log,
+    progress_bar,
+    set_progress_enabled,
+)
+
 
 def parse_house_spec(spec, tot_houses):
     """Parse a house selection string like "0-9,25,40-45" into a sorted list of indices.
@@ -72,7 +78,7 @@ def parse_house_spec(spec, tot_houses):
 def warn_if_missing(paths):
     missing = [path for path in paths if not os.path.exists(path)]
     for path in missing:
-        print(f"Warning: '{path}' not found. See README.md for setup/download instructions.")
+        log(f"Warning: '{path}' not found. See README.md for setup/download instructions.")
 
 
 # ---------------------------------------------------------------------------
@@ -85,9 +91,9 @@ def cmd_plots(args):
 
     warn_if_missing(["results/belgium_usefull_500.csv", "data/houses_belgium_500"])
 
-    print("Generating all paper plots from results/belgium_usefull_500.csv ...")
+    log("Generating paper figures from results/belgium_usefull_500.csv")
     plot_all_paper_plots()
-    print("Figures written to results/figures/")
+    log("Figures written to results/figures/")
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +107,7 @@ def cmd_train_treec(args):
     warn_if_missing([f"data/houses_belgium_{args.tot_houses}"])
 
     houses = parse_house_spec(args.houses, args.tot_houses)
-    print(
+    log(
         f"Training TreeC models for {len(houses)} house(s) out of {args.tot_houses} "
         f"(gen={args.gen}, pop_size={args.pop_size}, max_trees={args.max_trees})"
     )
@@ -119,14 +125,19 @@ def cmd_train_treec(args):
         max_train=args.max_trees,
     )
 
+    # The optimizer prints its own per-generation table, so track whole houses here.
+    bar = progress_bar(len(houses), "Houses trained", leave=True)
     if args.workers <= 1:
         for house_num in houses:
             worker(house_num)
+            bar.update(1)
     else:
         # Each house's training already parallelizes its population evaluation internally,
         # so only use --workers > 1 if you have enough cores to run several houses at once.
         with multiprocessing.Pool(processes=args.workers) as pool:
-            pool.map(worker, houses)
+            for _ in pool.imap_unordered(worker, houses):
+                bar.update(1)
+    bar.close()
 
 
 # ---------------------------------------------------------------------------
@@ -158,17 +169,22 @@ def cmd_train_mpc_forecast(args):
             )
 
     config_dir = f"data/houses_belgium_{args.tot_houses}"
+    log(f"Fitting MPC calibration + EV forecaster for {len(houses)} house(s)")
+    bar = progress_bar(len(houses), "Houses calibrated", leave=True)
     for house_num in houses:
         if house_num in already_done:
-            print(f"House {house_num} already calibrated, skipping (use --refresh to redo)")
+            log(f"house_{house_num}: already calibrated, skipped (--refresh to redo)")
+            bar.update(1)
             continue
 
         config_file = f"house_{house_num}.json"
         config_path = os.path.join(config_dir, config_file)
-        print(f"Fitting MPC thermal calibration + EV forecaster for house {house_num} ...")
         tmp_config_path = tmp_2023_config(config_path)
 
-        calibration_list, _ = get_energyplus_calibration(tmp_config_path)
+        calibration_list, _ = get_energyplus_calibration(
+            tmp_config_path, progress_desc=f"house_{house_num}"
+        )
+        bar.update(1)
 
         with open(out_path, "a") as f:
             if not calibration_list:
@@ -181,13 +197,15 @@ def cmd_train_mpc_forecast(args):
                     f"{cal['backup_eff']},{cal['ga']},{cal['therm_cap']},{cal['therm_res']}\n"
                 )
 
+    bar.close()
+
     tmp_config_dir = f"{config_dir}_tmp_2023"
     if os.path.exists(tmp_config_dir):
         import shutil
 
         shutil.rmtree(tmp_config_dir)
 
-    print(f"Calibration summary written to {out_path}")
+    log(f"Calibration summary written to {out_path}")
 
 
 # ---------------------------------------------------------------------------
@@ -214,11 +232,11 @@ def cmd_run(args):
 
     houses = parse_house_spec(args.houses, args.tot_houses)
 
+    main_file = f"{args.results_dir}/belgium_usefull_{args.tot_houses}.csv"
+    soc_file = f"{args.results_dir}/belgium_usefull_{args.tot_houses}_no_enforcement.csv"
+
     if args.target in ("main", "all"):
-        print(
-            f"Running {args.ems} for {len(houses)} house(s) -> "
-            f"{args.results_dir}/belgium_usefull_{args.tot_houses}.csv"
-        )
+        log(f"Running {', '.join(args.ems)} on {len(houses)} house(s) -> {main_file}")
         generate_results(
             house_num=args.tot_houses,
             ems_names=args.ems,
@@ -229,24 +247,26 @@ def cmd_run(args):
         )
 
     if args.target in ("no-enforcement", "all"):
-        print(
-            f"Running TreeC_no_enforcement for {len(houses)} house(s) -> "
-            f"{args.results_dir}/belgium_usefull_{args.tot_houses}_no_enforcement.csv"
-        )
+        log(f"Running the no-enforcement variants on {len(houses)} house(s) -> {soc_file}")
         generate_charge_completion_results_treec(
             houses=houses, results_dir=args.results_dir
         )
 
-        print(f"Running MPC_realistic_forecast_no_enforcement for {len(houses)} house(s) ...")
         worker = functools.partial(
             generate_charge_completion_results_mpc_hpc, results_dir=args.results_dir
+        )
+        bar = progress_bar(
+            len(houses), f"MPC_realistic_forecast_no_enforcement ({len(houses)} houses)"
         )
         if args.workers <= 1:
             for house_num in houses:
                 worker(house_num)
+                bar.update(1)
         else:
             with multiprocessing.Pool(processes=args.workers) as pool:
-                pool.map(worker, houses)
+                for _ in pool.imap_unordered(worker, houses):
+                    bar.update(1)
+        bar.close()
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +291,12 @@ def add_house_selection_args(parser, default_tot_houses=500):
 def build_parser():
     parser = argparse.ArgumentParser(
         description="Reproduce the results and plots of the 'Should Belgians install advanced EMS' paper."
+    )
+    parser.add_argument(
+        "--no-progress",
+        action="store_true",
+        help="Disable progress bars (they also switch off automatically when the output "
+        "is redirected to a file)",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -363,6 +389,7 @@ def build_parser():
 def main():
     parser = build_parser()
     args = parser.parse_args()
+    set_progress_enabled(not args.no_progress)
     args.func(args)
 
 

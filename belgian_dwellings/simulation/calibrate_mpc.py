@@ -17,8 +17,10 @@ from belgian_dwellings.simulation.forecaster import get_new_ev_forecasting_value
 
 import scipy.optimize
 
+from belgian_dwellings.utils.progress import simulation_bar
 
-def execute_config(config_file):
+
+def execute_config(config_file, progress_desc=None):
 
     microgrid = parse_config_file(config_file)
     energyplus = []
@@ -88,16 +90,10 @@ def execute_config(config_file):
     ev_forecasting_values = [dict() for _ in range(len(chargers))]
 
     env_values = microgrid.environments[0].env_values
+    bar = simulation_bar(
+        microgrid, microgrid.end_time, progress_desc or "MPC calibration"
+    )
     while microgrid.utc_datetime < microgrid.end_time:
-        # Print every new week
-        if (
-            microgrid.utc_datetime.weekday() == 0
-            and microgrid.utc_datetime.hour == 0
-            and microgrid.utc_datetime.minute == 0
-        ):
-            pass
-            # print(microgrid.utc_datetime)
-
         for i, asset in enumerate(energyplus):
             readings = asset.get_readings()
 
@@ -128,7 +124,10 @@ def execute_config(config_file):
             prev_det = charger.det
 
         microgrid.management_system.simulate_step()
+        bar.update(1)
         first_step = False
+    bar.close()
+
     for asset in microgrid.assets:
         if isinstance(asset, EnergyPlus):
             asset.stop_energyplus_thread()
@@ -269,10 +268,12 @@ def plot_fitted_values(x, y, popt):
     plt.show()
 
 
-def get_energyplus_calibration(config_file, plot=False):
+def get_energyplus_calibration(config_file, plot=False, progress_desc=None):
     energyplus_calibrations = []
 
-    calibration_list, ev_forecasting_values = execute_config(config_file)
+    calibration_list, ev_forecasting_values = execute_config(
+        config_file, progress_desc=progress_desc
+    )
 
     for calibration_values in calibration_list:
         dict_eff = calc_efficiency(calibration_values)

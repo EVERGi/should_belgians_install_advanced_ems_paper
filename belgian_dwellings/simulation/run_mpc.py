@@ -19,6 +19,7 @@ from belgian_dwellings.simulation.mpc_ems import PerfectMPC, MPCRealistic
 from belgian_dwellings.simulation.calibrate_mpc import get_energyplus_calibration
 from simugrid.assets.energyplus import EnergyPlus
 from belgian_dwellings.simulation.tmp_2023_config import tmp_2023_config
+from belgian_dwellings.utils.progress import simulation_bar
 
 import matplotlib.pyplot as plt
 
@@ -29,13 +30,13 @@ def execute_mpc(
     cached_ev_forecasting_values=None,
     mode="perfect",
     disable_enforced=False,
+    progress_desc=None,
 ):
     if cached_calibration is None or cached_ev_forecasting_values is None:
         energyplus_calibration, ev_forecasting_values = get_energyplus_calibration(
-            config_file
+            config_file,
+            progress_desc=f"{progress_desc} calibration" if progress_desc else None,
         )
-        print("Calibration: ", energyplus_calibration)
-        # print("EV Forecasting Values: ", ev_forecasting_values)
     else:
         energyplus_calibration = cached_calibration
         ev_forecasting_values = cached_ev_forecasting_values
@@ -69,16 +70,11 @@ def execute_mpc(
     microgrid.attribute_to_log("EnergyPlus_0", "cur_t_up")
     microgrid.attribute_to_log("Charger_0", "soc")
     microgrid.attribute_to_log("WaterHeater_0", "t_tank")
+    bar = simulation_bar(microgrid, end_time, progress_desc or f"MPC ({mode})")
     while microgrid.utc_datetime < end_time:
-        # Print every new week
-        if (
-            microgrid.utc_datetime.weekday() == 0
-            and microgrid.utc_datetime.hour == 0
-            and microgrid.utc_datetime.minute == 0
-        ) and True:
-            # pass
-            print(microgrid.utc_datetime)
         microgrid.management_system.simulate_step()
+        bar.update(1)
+    bar.close()
 
     microgrid.management_system.model.close()
 

@@ -1,4 +1,5 @@
 from belgian_dwellings.simulation.custom_classes import HouseManager, DayAheadEngie
+from belgian_dwellings.utils.progress import simulation_bar
 
 from simugrid.assets.energyplus import EnergyPlus
 from simugrid.assets.charger import Charger
@@ -27,7 +28,7 @@ class RuleBasedManager(HouseManager):
                 self.control_points[asset]["zn0_cooling_sp"] = comfort_t_up
 
 
-def execute_rule_base(config_file, delta_t_comfort=None):
+def execute_rule_base(config_file, delta_t_comfort=None, progress_desc=None):
 
     if delta_t_comfort is None:
         delta_t_comfort = datetime.timedelta(minutes=3 * 60)
@@ -45,19 +46,11 @@ def execute_rule_base(config_file, delta_t_comfort=None):
     microgrid.attribute_to_log("Charger_0", "soc")
     microgrid.attribute_to_log("WaterHeater_0", "t_tank")
 
+    bar = simulation_bar(microgrid, end_time, progress_desc or "RBC")
     while microgrid.utc_datetime < end_time:
-        # Print every new week
-        if (
-            microgrid.utc_datetime.weekday() == 0
-            and microgrid.utc_datetime.hour == 0
-            and microgrid.utc_datetime.minute == 0
-        ):
-            pass
-            # print(microgrid.utc_datetime)
         microgrid.management_system.simulate_step()
-
-    # print(f"Final rule base opex: {microgrid.tot_reward.KPIs['opex']}")
-    # print(f"Final rule base discomfort: {microgrid.tot_reward.KPIs['discomfort']}")
+        bar.update(1)
+    bar.close()
 
     for asset in microgrid.assets:
         if isinstance(asset, EnergyPlus):

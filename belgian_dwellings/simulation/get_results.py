@@ -4,6 +4,13 @@ from belgian_dwellings.simulation.rbc_ems import execute_rule_base
 from belgian_dwellings.simulation.run_mpc import execute_mpc, get_energyplus_calibration
 from belgian_dwellings.simulation.run_treec import execute_treec, find_best_tree_for_each_house
 from belgian_dwellings.simulation.tmp_2023_config import tmp_2023_config
+from belgian_dwellings.utils.progress import (
+    log,
+    progress_bar,
+    progress_enabled,
+    set_progress_enabled,
+    set_worker_mode,
+)
 import datetime
 
 from filelock import FileLock
@@ -37,31 +44,59 @@ def get_results(
             )
 
     config_files = sorted(os.listdir(folder))
+    if config_list is not None:
+        config_files = [f for f in config_files if f in config_list]
 
     if num_process is None:
         num_process = multiprocessing.cpu_count() - 1 or 1
-    if not single_threaded:
-        pool = multiprocessing.Pool(processes=num_process)
+
     tmp_config_dir = None
-    for config_file in config_files:
-        if config_list is not None and config_file not in config_list:
-            continue
-        print(f"Processing {config_file}")
-        config_path = os.path.join(folder, config_file)
-        tmp_config_path = tmp_2023_config(config_path)
-        tmp_config_dir = os.path.dirname(tmp_config_path)
-        if single_threaded:
-            execute_single_result(
+    if single_threaded:
+        # One process: show the detailed per-timestep bar of each simulation.
+        for config_file in config_files:
+            config_path = os.path.join(folder, config_file)
+            tmp_config_path = tmp_2023_config(config_path)
+            tmp_config_dir = os.path.dirname(tmp_config_path)
+            summary = execute_single_result(
                 tmp_config_path, result_file, ems_name, refresh, config_path
             )
-        else:
+            if summary:
+                log(summary)
+    else:
+        # Several houses at once: per-timestep bars from the workers would interleave
+        # into noise, so silence them and track completed houses in the parent instead.
+        was_enabled = progress_enabled()
+        set_progress_enabled(False)
+        set_worker_mode(True)
+        pool = multiprocessing.Pool(processes=num_process)
+        set_worker_mode(False)
+        set_progress_enabled(was_enabled)
+
+        bar = progress_bar(len(config_files), f"{ems_name} ({len(config_files)} houses)")
+
+        def on_done(summary):
+            # Runs in the parent, so tqdm.write can lift the bar out of the way first.
+            bar.update(1)
+            if summary:
+                log(summary)
+
+        def on_error(exc):
+            bar.update(1)
+            log(f"  error: {exc}")
+
+        for config_file in config_files:
+            config_path = os.path.join(folder, config_file)
+            tmp_config_path = tmp_2023_config(config_path)
+            tmp_config_dir = os.path.dirname(tmp_config_path)
             pool.apply_async(
                 execute_single_result,
                 args=(tmp_config_path, result_file, ems_name, refresh, config_path),
+                callback=on_done,
+                error_callback=on_error,
             )
-    if not single_threaded:
         pool.close()
         pool.join()
+        bar.close()
 
     # Sort the result file by config_file name
     with open(result_file, "r") as f:
@@ -76,7 +111,6 @@ def get_results(
 
 
 def execute_single_result(config_path, result_file, ems_name, refresh, old_config_path):
-    print(f"Executing {config_path} with {ems_name}")
     config_file = os.path.basename(config_path)
     with open(result_file, "r") as f:
         lines = f.readlines()
@@ -85,33 +119,40 @@ def execute_single_result(config_path, result_file, ems_name, refresh, old_confi
             line for line in lines if not line.startswith(f"{config_file},{ems_name},")
         ]
 
-    if not any(line.startswith(f"{config_file},{ems_name},") for line in lines):
-        if ems_name.startswith("RBC"):
-            microgrid = rule_base_execution(config_path, ems_name)
-        if ems_name.startswith("MPC"):
-            microgrid = mpc_execution(config_path, ems_name, old_config_path)
-        if ems_name.startswith("TreeC"):
-            microgrid = treec_execution(config_path, ems_name)
-        log_results(microgrid, result_file, config_file, ems_name)
-    else:
-        print(f"{config_file} already exists in the result file")
+    if any(line.startswith(f"{config_file},{ems_name},") for line in lines):
+        return f"{config_file:<18} {ems_name:<24} already in results, skipped"
 
-    # microgrid = None
-    # Garbage collection
-    # gc.collect()
+    # Shown as the label of the per-timestep progress bar.
+    desc = f"{config_file.replace('.json', ''):<11} {ems_name}"
+    if ems_name.startswith("RBC"):
+        microgrid = rule_base_execution(config_path, ems_name, progress_desc=desc)
+    if ems_name.startswith("MPC"):
+        microgrid = mpc_execution(
+            config_path, ems_name, old_config_path, progress_desc=desc
+        )
+    if ems_name.startswith("TreeC"):
+        microgrid = treec_execution(config_path, ems_name, progress_desc=desc)
+    return log_results(microgrid, result_file, config_file, ems_name)
 
 
 def log_results(microgrid, result_file, config_file, ems_name):
-    log_kpis(microgrid, result_file, config_file, ems_name)
+    """Write the KPIs/timeseries out and return a one-line summary for the caller."""
+    summary = log_kpis(microgrid, result_file, config_file, ems_name)
 
     log_microgrid(microgrid, result_file, config_file, ems_name)
+
+    return summary
 
 
 def log_kpis(microgrid, result_file, config_file, ems_name):
     opex = microgrid.tot_reward.KPIs["opex"]
     discomfort = microgrid.tot_reward.KPIs["discomfort"]
-    print(config_file)
-    print(f"opex (€): {opex}, discomfort (Kh): {discomfort}")
+    # Returned rather than printed: under multiprocessing this runs in a worker, and
+    # only the parent can write around its own progress bar.
+    summary = (
+        f"{config_file:<18} {ems_name:<24} "
+        f"opex {-opex:8.2f} €   discomfort {discomfort:6.2f} Kh"
+    )
     consumption = get_consumption(microgrid)
     consumption_only = consumption["consumption_only"]
     grid_offtake = consumption["grid_offtake"]
@@ -143,6 +184,8 @@ def log_kpis(microgrid, result_file, config_file, ems_name):
         lock = FileLock(mae_log_file + ".lock")
         with lock:
             log_mae_score(microgrid, mae_log_file, config_file, ems_name)
+
+    return summary
 
 
 def log_soc_data(microgrid, soc_file, config_file, ems_name):
@@ -231,22 +274,25 @@ def get_consumption(microgrid):
     return consumption
 
 
-def rule_base_execution(config_path, ems_name):
+def rule_base_execution(config_path, ems_name, progress_desc=None):
     delta_t_h = float(ems_name.split("_")[-1][:-1])
     delta_t_comfort = datetime.timedelta(minutes=int(delta_t_h * 60))
-    microgrid = execute_rule_base(config_path, delta_t_comfort)
+    microgrid = execute_rule_base(
+        config_path, delta_t_comfort, progress_desc=progress_desc
+    )
     return microgrid
 
 
-def mpc_execution(config_path, ems_name, old_config_path):
+def mpc_execution(config_path, ems_name, old_config_path, progress_desc=None):
+    calibration_desc = f"{progress_desc} calibration" if progress_desc else None
     if "perfect" in ems_name:
         energyplus_calibration, ev_forecasting_values = get_energyplus_calibration(
-            config_path
+            config_path, progress_desc=calibration_desc
         )
         mode = "perfect"
     else:
         energyplus_calibration, ev_forecasting_values = get_energyplus_calibration(
-            old_config_path
+            old_config_path, progress_desc=calibration_desc
         )
         mode = "realistic"
 
@@ -260,11 +306,12 @@ def mpc_execution(config_path, ems_name, old_config_path):
         cached_ev_forecasting_values=ev_forecasting_values,
         mode=mode,
         disable_enforced=disable_enforced,
+        progress_desc=progress_desc,
     )
     return microgrid
 
 
-def treec_execution(config_path, ems_name):
+def treec_execution(config_path, ems_name, progress_desc=None):
     config_file = os.path.basename(config_path)
     split_path = config_path.split("/")
     house_str = config_file.replace(".json", "")
@@ -273,8 +320,10 @@ def treec_execution(config_path, ems_name):
     training_folders = f"treec_train_{tot_houses}/"
     best_trees = find_best_tree_for_each_house(training_folders)
     if house_str not in best_trees.keys():
-        print(f"Executing rule base for {config_file}")
-        microgrid = rule_base_execution(config_path, "RBC_3h")
+        # No trained tree for this house: fall back to the rule-based controller.
+        microgrid = rule_base_execution(
+            config_path, "RBC_3h", progress_desc=progress_desc
+        )
     else:
         model_filepath = best_trees[house_str]["model_path"]
         model_folder = os.path.dirname(model_filepath) + "/"
@@ -283,7 +332,10 @@ def treec_execution(config_path, ems_name):
         else:
             disable_enforced = False
         microgrid = execute_treec(
-            config_path, model_folder, disable_enforced=disable_enforced
+            config_path,
+            model_folder,
+            disable_enforced=disable_enforced,
+            progress_desc=progress_desc,
         )
     return microgrid
 
@@ -355,7 +407,7 @@ def generate_results(
         if os.path.exists(result_file + ".lock"):
             os.remove(result_file + ".lock")
         if tmp_config_dir is not None:
-            shutil.rmtree(tmp_config_dir)
+            shutil.rmtree(tmp_config_dir, ignore_errors=True)
 
 
 def generate_charge_completion_results_treec(houses=None, results_dir="results"):

@@ -3,6 +3,7 @@ import os
 
 from belgian_dwellings.simulation.custom_classes import HouseManager
 from belgian_dwellings.simulation.forecaster import PerfectForecaster, EasyForcaster
+from belgian_dwellings.utils.progress import log
 import gurobipy as gp
 
 from gurobipy import GRB
@@ -20,11 +21,31 @@ class ModelAttributes(object):
     pass
 
 
+_silent_env = None
+
+
+def get_silent_env():
+    """Return a Gurobi environment that prints nothing, created once per process.
+
+    Gurobi writes its license banner ("Restricted license - ...") when an environment
+    is started, so output has to be switched off on an ``empty=True`` environment
+    *before* starting it. Setting ``LogToConsole`` on the model afterwards is too late,
+    since creating the model already started the default environment.
+    """
+    global _silent_env
+    if _silent_env is None:
+        env = gp.Env(empty=True)
+        env.setParam("OutputFlag", 0)
+        env.start()
+        _silent_env = env
+    return _silent_env
+
+
 class MPCManager(HouseManager):
     def __init__(self, microgrid, energyplus_calibration):
         super().__init__(microgrid)
 
-        self.model = gp.Model("mpc")  # , env=env)
+        self.model = gp.Model("mpc", env=get_silent_env())
         self.model.Params.LogToConsole = 0
         self.model.Params.SoftMemLimit = 2
         self.model.Params.Threads = 4
@@ -737,9 +758,9 @@ class MPCManager(HouseManager):
         retry = 0
 
         if status == GRB.TIME_LIMIT:
-            print("Time limit reached. Using non optimal solution.")
+            log("MPC: time limit reached, using non optimal solution")
         elif status == GRB.MEM_LIMIT:
-            print("Memory limit reached. Using non optimal solution.")
+            log("MPC: memory limit reached, using non optimal solution")
 
         while status not in [GRB.OPTIMAL, GRB.TIME_LIMIT, GRB.MEM_LIMIT]:
             retry += 1
@@ -750,7 +771,7 @@ class MPCManager(HouseManager):
 
             # print("Model not optimal")
             if retry > 40:
-                print(f"Model not optimal. Retry number: {retry}")
+                log(f"MPC: model not optimal, retry number {retry}")
                 # If config_file is an attribute of microgrid
                 microgrid = self.microgrid
                 if hasattr(microgrid, "config_file"):

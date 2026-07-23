@@ -5,6 +5,7 @@ import os
 from belgian_dwellings.simulation.custom_classes import DayAheadEngie, TreeManager
 from belgian_dwellings.simulation.tmp_2023_config import tmp_2023_config
 from belgian_dwellings.training.input_functions import first_input_function
+from belgian_dwellings.utils.progress import simulation_bar
 
 from treec.logger import TreeLogger
 
@@ -60,7 +61,9 @@ def find_best_tree_for_each_house(log_folder):
     return best_trees
 
 
-def execute_treec(config_file, model_folder, disable_enforced=False):
+def execute_treec(
+    config_file, model_folder, disable_enforced=False, progress_desc=None
+):
 
     microgrid = parse_config_file(config_file)
 
@@ -81,22 +84,15 @@ def execute_treec(config_file, model_folder, disable_enforced=False):
     microgrid.attribute_to_log("EnergyPlus_0", "cur_t_up")
     microgrid.attribute_to_log("Charger_0", "soc")
     microgrid.attribute_to_log("WaterHeater_0", "t_tank")
+    bar = simulation_bar(microgrid, end_time, progress_desc or "TreeC")
     while microgrid.utc_datetime < end_time:
-        # Print every new week
-        if (
-            microgrid.utc_datetime.weekday() == 1
-            and microgrid.utc_datetime.hour == 0
-            and microgrid.utc_datetime.minute == 0
-        ):
-            pass
-            # print(microgrid.utc_datetime)
         microgrid.management_system.simulate_step()
+        bar.update(1)
+    bar.close()
 
     for asset in microgrid.assets:
         if isinstance(asset, EnergyPlus):
             asset.stop_energyplus_thread()
-    # print(f"Final opex: {microgrid.tot_reward.KPIs['opex']}")
-    # print(f"Final discomfort: {microgrid.tot_reward.KPIs['discomfort']}")
     return microgrid
 
 

@@ -3,3 +3,4 @@ paramiko
 scikit-learn
 scp
 pytz
+tqdm
