@@ -221,6 +221,8 @@ __marimo__/
 # Ignore large files
 data/
 results/
+results_rerun/
+out/
 treec_train_500/
 
 # Data or external files
