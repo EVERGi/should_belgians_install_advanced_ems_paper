@@ -322,12 +322,24 @@ def extract_info_from_config(config_path):
     return info
 
 
-def generate_results(house_num=100, ems_names=None, refresh=False, num_process=None):
+def generate_results(
+    house_num=100,
+    ems_names=None,
+    refresh=False,
+    num_process=None,
+    houses=None,
+    results_dir="results",
+):
 
     folder = f"data/houses_belgium_{house_num}/"
-    result_file = f"results/belgium_usefull_{house_num}.csv"
+    os.makedirs(results_dir, exist_ok=True)
+    result_file = f"{results_dir}/belgium_usefull_{house_num}.csv"
 
     single_threaded = num_process == 1
+
+    config_list = None
+    if houses is not None:
+        config_list = [f"house_{h}.json" for h in houses]
 
     for ems_name in ems_names:
         tmp_config_dir = get_results(
@@ -337,18 +349,24 @@ def generate_results(house_num=100, ems_names=None, refresh=False, num_process=N
             refresh=refresh,
             single_threaded=single_threaded,
             num_process=num_process,
+            config_list=config_list,
         )
-        # Remove FileLock
-        os.remove(result_file + ".lock")
+        # Remove FileLock (newer filelock versions already clean this up on release)
+        if os.path.exists(result_file + ".lock"):
+            os.remove(result_file + ".lock")
         if tmp_config_dir is not None:
             shutil.rmtree(tmp_config_dir)
 
 
-def generate_charge_completion_results_treec():
+def generate_charge_completion_results_treec(houses=None, results_dir="results"):
     tot_houses = 500
     folder = f"data/houses_belgium_{tot_houses}/"
-    result_file = f"results/belgium_usefull_{tot_houses}_no_enforcement.csv"
+    os.makedirs(results_dir, exist_ok=True)
+    result_file = f"{results_dir}/belgium_usefull_{tot_houses}_no_enforcement.csv"
     ems_name = "TreeC_no_enforcement"
+    config_list = None
+    if houses is not None:
+        config_list = [f"house_{h}.json" for h in houses]
     get_results(
         folder,
         result_file,
@@ -356,13 +374,15 @@ def generate_charge_completion_results_treec():
         refresh=True,
         single_threaded=False,
         num_process=10,
+        config_list=config_list,
     )
 
 
-def generate_charge_completion_results_mpc_hpc(house_num):
+def generate_charge_completion_results_mpc_hpc(house_num, results_dir="results"):
     tot_houses = 500
     folder = f"data/houses_belgium_{tot_houses}/"
-    result_file = f"results/belgium_usefull_{tot_houses}_no_enforcement.csv"
+    os.makedirs(results_dir, exist_ok=True)
+    result_file = f"{results_dir}/belgium_usefull_{tot_houses}_no_enforcement.csv"
     ems_name = "MPC_realistic_forecast_no_enforcement"
     get_results(
         folder,

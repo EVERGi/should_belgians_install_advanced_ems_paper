@@ -17,12 +17,7 @@ class RationalManager(Manager):
         Function called at each simulation timestep
         """
         # Assemble all production assets together
-        producers = (
-            self.renewable_assets
-            + self.batteries
-            + self.gas_turbines
-            + self.public_grid
-        )
+        producers = self.renewable_assets + self.batteries + self.public_grid
 
         for asset in self.energyplus:
             asset.set_default_comfort_range()

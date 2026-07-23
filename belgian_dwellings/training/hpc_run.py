@@ -18,11 +18,11 @@ def get_max_training(tot_houses):
 def hpc_run(
     house_num,
     tot_houses,
+    gen=300,
+    pop_size=200,
+    max_train=5,
 ):
     print(f"Training house {house_num} out of {tot_houses}")
-    
-    # max_train = get_max_training(tot_houses)
-    max_train = 5
 
     # Check if the house is already trained
     house_folder = f"treec_train_{tot_houses}/house_{house_num}/"
@@ -34,8 +34,8 @@ def hpc_run(
 
     params_change = {
         "single_threaded": False,
-        "gen": 300,
-        "pop_size": 200,
+        "gen": gen,
+        "pop_size": pop_size,
     }
 
     log_folder = train_house(house_num, tot_houses, params_change)
