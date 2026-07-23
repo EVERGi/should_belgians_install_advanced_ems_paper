@@ -1,7 +1,15 @@
 
-# Should Belgians Install Advanced EMS in Their Dwellings?
+# Should Belgians Install an Advanced Energy Management System in Their Electrified Dwelling?
 
-This repository contains the code, data and results to reproduce the results and plots of the paper.
+This repository contains the code, data and results to reproduce the results and plots of the paper:
+
+> **Should Belgians Install an Advanced Energy Management System in Their Electrified Dwelling?**
+> 📄 **https://doi.org/10.1145/3744256.3812575**
+
+The accepted version, including the appendix, is also in this repository as
+[`article_with_appendix.pdf`](article_with_appendix.pdf).
+
+If you use this code, data or the results, please cite the paper above.
 
 Don't hesitate to open an issue if you encounter any problems.
 
